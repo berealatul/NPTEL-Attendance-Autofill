@@ -1,18 +1,31 @@
 {
   "manifest_version": 3,
-  "name": "NPTEL Auto Attendance",
+  "name": "NPTEL Attendance Autofill",
   "version": "1.0.0",
-  "description": "Autofill NPTEL Internship attendance form",
-  "permissions": ["storage"],
+  "description": "Autofill NPTEL Internship attendance form with static data. Developed by Atul Prakash.",
+  "author": "Atul Prakash",
+  "permissions": [
+    "storage"
+  ],
   "action": {
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["https://docs.google.com/forms/*"],
-      "js": ["content.js"]
+      "matches": [
+        "https://docs.google.com/forms/*"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "berealatul@gmail.com", 
+      "strict_min_version": "109.0"
+    }
+  },
   "icons": {
     "128": "icon.png"
   }

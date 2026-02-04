@@ -1,8 +1,10 @@
-// Improved content.js
-// Handles finding questions more robustly by traversing DOM structure
-// Retries filling to handle dynamic loading
+/**
+ * NPTEL Attendance Autofill
+ * Developed by Atul Prakash (@berealatul)
+ * License: MIT
+ */
 
-// Helper: Convert DD-MM-YYYY to YYYY-MM-DD
+// Format date from DD-MM-YYYY to YYYY-MM-DD
 function formatDateForInput(dateStr) {
   const parts = dateStr.match(/^(\d{2})-(\d{2})-(\d{4})$/);
   if (parts) {
@@ -11,12 +13,18 @@ function formatDateForInput(dateStr) {
   return dateStr;
 }
 
+// Locate the container for a specific question text in Google Forms
 function getContainer(question) {
   const term = question.toLowerCase();
+  // Google Forms uses role="heading" for question titles
   const headings = document.querySelectorAll('div[role="heading"]');
+
   for (const h of headings) {
     if (h.innerText && h.innerText.toLowerCase().includes(term)) {
+      // Typically, the question is inside a listitem container
       let container = h.closest('[role="listitem"]');
+
+      // Fallback: simple parent traversal if structure changes
       if (!container) {
         let parent = h.parentElement;
         for (let i = 0; i < 5 && parent; i++) {
@@ -33,9 +41,24 @@ function getContainer(question) {
   return null;
 }
 
+// Trigger mouse events properly for Google Forms interactions
+function triggerClick(element) {
+  const events = ["mousedown", "mouseup", "click"];
+  events.forEach((eventType) => {
+    const event = new MouseEvent(eventType, {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    });
+    element.dispatchEvent(event);
+  });
+}
+
+// Fill text or date inputs
 function fillByQuestion(question, value, isDate = false) {
   if (!value) return;
   const container = getContainer(question);
+
   if (container) {
     const input = container.querySelector(
       "input:not([type='hidden']), textarea",
@@ -50,44 +73,23 @@ function fillByQuestion(question, value, isDate = false) {
 
       input.focus();
       input.value = finalValue;
+      // Dispatch necessary events to ensure Google Forms saves the data
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
       input.blur();
-      console.log(`[Autofill] Filled '${question}' with '${finalValue}'`);
     }
   }
 }
 
-function triggerClick(element) {
-  const events = ["mousedown", "mouseup", "click"];
-  events.forEach((eventType) => {
-    const event = new MouseEvent(eventType, {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-    });
-    element.dispatchEvent(event);
-  });
-}
-
+// Handle Google Forms custom listbox dropdowns
 function fillDropdown(question, value) {
   if (!value) return;
   const container = getContainer(question);
+
   if (container) {
     const listbox = container.querySelector('div[role="listbox"]');
     if (listbox) {
-      // Check if already selected by looking for visible text in the box or specific Google Forms structure
-      // Google Forms usually separates the display value from the options list.
-      // We check the listbox's visible text (collapsed state)
-      // OR check if any option inside marked as selected matches.
-
-      // Refined check:
-      // 1. Check visible text in the listbox container (simple, covers most cases)
-      // 2. Be careful not to match "Virtual" if it's just an option in the list but not selected.
-      // When closed, usually only selected value is visible/rendered in the main box.
-
-      // However, listbox.innerText might include all options if they are just hidden with opacity/off-screen.
-      // Better check: Look for the specific structure 'aria-selected="true"' options.
+      // Check if the value is already selected (via aria-selected or display text)
       const selectedOption = listbox.querySelector(
         'div[role="option"][aria-selected="true"]',
       );
@@ -100,52 +102,40 @@ function fillDropdown(question, value) {
           return; // Already selected
         }
       } else {
-        // Fallback: checks specific display container if usually present
-        const displayArea = listbox.querySelector('div[jsname="d9BH4c"]'); // from user snippet
+        // Fallback check for collapsed text
+        const displayArea = listbox.querySelector('div[jsname="d9BH4c"]');
         if (displayArea && displayArea.innerText.includes(value)) {
-          // Verify it's not just "Choose" or something
-          // If it matches exactly or contains heavily implies selection if closed.
           return;
         }
       }
 
-      // Avoid rapid re-clicking if it's already open, but hard to know 100% state without aria-expanded
-      // Google Forms uses aria-expanded.
+      // Open the dropdown if not expanded
       const isExpanded = listbox.getAttribute("aria-expanded") === "true";
-
       if (!isExpanded) {
         triggerClick(listbox);
       }
 
-      // Poll for options to appear
+      // Poll briefly for options to appear (they may render in a portal)
       let attempts = 0;
       const clickOption = () => {
         attempts++;
-        // Search for options.
-        // They might be children of listbox OR attached to body (portals)
-        // We'll search both scopes.
+        // Check local children first, then global document for portals
         let options = Array.from(
           listbox.querySelectorAll('div[role="option"]'),
         );
-
-        // If we don't find enough options inside, checks global document (for portals)
         if (options.length < 2) {
           options = Array.from(document.querySelectorAll('div[role="option"]'));
         }
 
         for (const opt of options) {
-          // Match value or text
           if (opt.dataset.value === value || opt.innerText.trim() === value) {
-            // Ensure we are clicking an Item in the list, not the one in the display box (if duplication exists)
-            // In Google Forms, the list options usually share a container.
+            // Ensure we click the actual list item, not the display header
             const parent = opt.parentElement;
-            // Simple heuristic: Does parent have multiple 'option' children?
             if (
               parent &&
               parent.querySelectorAll('div[role="option"]').length > 1
             ) {
               triggerClick(opt);
-              console.log(`[Autofill] Selected '${value}' for '${question}'`);
               return true; // Success
             }
           }
@@ -162,13 +152,15 @@ function fillDropdown(question, value) {
   }
 }
 
+// Main execution function
 function runAutofill() {
   chrome.storage.sync.get(null, (data) => {
     if (chrome.runtime.lastError) {
-      console.error(chrome.runtime.lastError);
+      // Silently fail if storage is not accessible (e.g. context invalid)
       return;
     }
 
+    // User-configured fields
     fillByQuestion("Internship ID", data.internshipId);
     fillByQuestion("Your Name", data.name);
     fillByQuestion("Mobile Number", data.mobile);
@@ -185,6 +177,7 @@ function runAutofill() {
   });
 }
 
+// Retry loop to handle network latency and dynamic DOM rendering
 let attempts = 0;
 const intervalId = setInterval(() => {
   runAutofill();
